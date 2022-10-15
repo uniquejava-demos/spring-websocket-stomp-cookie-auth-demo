@@ -1,12 +1,12 @@
 import { useState } from 'react'
+import Login from './components/Login'
 
 function App() {
   const [connected, setConnected] = useState(false)
-
-  let ws: WebSocket
+  const [ws, setWs] = useState<null | WebSocket>(null)
 
   function onConnect() {
-    ws = new WebSocket('ws://localhost:8080/stomp')
+    const ws = new WebSocket('ws://localhost:8080/stomp')
 
     ws.onopen = (event) => {
       console.log('on open ..')
@@ -26,12 +26,20 @@ function App() {
       console.log('onclose: ', event.code, event.reason)
       setConnected(false)
     }
+
+    setWs(ws)
   }
 
   return (
     <>
       <h1> websocket demo</h1>
-      <div>{connected ? null : <button onClick={onConnect}>Connect to Chat server</button>}</div>
+      <Login />
+
+      <hr />
+
+      <div>
+        {connected ? null : <button onClick={() => onConnect()}>Connect to Chat server</button>}
+      </div>
     </>
   )
 }

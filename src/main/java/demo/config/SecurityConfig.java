@@ -51,7 +51,10 @@ public class SecurityConfig {
                 .accessDeniedHandler(new MyAccessDeniedHandler())
         );
 
-        http.formLogin().permitAll();
+        http.formLogin(login -> login
+                .successHandler(new MyAuthenticationSuccessHandler())
+                .failureHandler(new MyAuthenticationFailureHandler())
+                .permitAll());
 
         // by default uses a Bean by the name of corsConfigurationSource
         http.cors(withDefaults());
