@@ -33,6 +33,11 @@ function App() {
       setConnected(false)
     }
 
+    client.onWebSocketClose = function (evt) {
+      console.log('WebSocket closed.')
+      console.log(evt)
+    }
+
     client.onStompError = function (frame) {
       // Will be invoked in case of error encountered at Broker
       // Bad login/passcode typically will cause an error
@@ -79,9 +84,12 @@ function App() {
               }}
               value={messageInput}
             />
-            <button onClick={onSend} disabled={!messageInput}>
-              send
-            </button>
+            <>
+              <button onClick={onSend} disabled={!messageInput}>
+                send
+              </button>
+              <button onClick={onDisconnect}>disconnect</button>
+            </>
           </div>
         ) : (
           <button onClick={() => onConnect()}>Connect to Chat server</button>

@@ -6,11 +6,13 @@
 
 ## Checkpoint
 
-- [x] Check ws://localhost:8080/stomp endpoint is protected by spring security
-- [x] Check cookie exist in http request header when doing websocket handshake
-- [x] Check Principal is available in controller layer
+- [x] Check ws://localhost:8080/stomp endpoint is protected by spring security ✅
+- [x] Check cookie exist in http request header when doing websocket handshake ✅
+- [x] Check Principal is available in controller layer ✅
 - [x] Check SecurityContextHolder is available ❌
-- [ ] Check client automatically disconnected by spring security upon `/logout`?
+- [x] Check client automatically disconnected by spring security upon `/logout`? ✅ (logout http session will trigger
+  onWebSocketClose)
+- [ ] Todo: onWebSocketClose 如果使用SimpUserRegistry统计算用户在线 还是 用户离线.
 
 ## #1 WS endpoint protected by default ✅
 
@@ -334,3 +336,34 @@ https://stackoverflow.com/questions/54307574/spring-websockets-spring-security-a
 https://howtodoinjava.com/spring-security/spring-security-context-propagation/
 
 ## Checkpoint #4 /logout will trigger disconnect event?
+
+Yes and no, Not disconnect event but onWebSocketClose event。
+
+相关的前端代码
+
+```tsx
+  client.onDisconnect = function () {
+  console.log('Client disconnected.')
+  setConnected(false)
+}
+
+client.onWebSocketClose = function (evt) {
+  console.log('WebSocket closed.')
+  console.log(evt)
+}
+```
+
+点击logout按钮， 触发spring security的 `/logout`， 从chrome console可以看到前端的 client.onWebSocketClose回调函数被执行。
+
+并且evt对象里 清楚地 给出了 原因。
+
+```json
+{
+  code: 1008,
+  reason: 'This connection was established under an authenticated HTTP session that has ended.'
+}
+```
+
+注意 `/logout` 不会触发 onDisconnect。
+
+也就是说: spring security http session 和 websocket session 息息相关。 登出http session会自动触发websocket close。
