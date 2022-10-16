@@ -31,6 +31,11 @@ function Login() {
     setMessage(res.data.message)
   }
 
+  async function onWhoami() {
+    const res = await http.get('/whoami')
+    setMessage(res.data.message)
+  }
+
   async function onLogout() {
     await http.post('/logout')
     setAuthenticated(false)
@@ -40,6 +45,7 @@ function Login() {
     <>
       {authenticated ? (
         <div>
+          <button onClick={onWhoami}>Who am I?</button>
           <button onClick={onLogout}>Logout</button>
         </div>
       ) : (

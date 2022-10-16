@@ -9,7 +9,7 @@
 - [x] Check ws://localhost:8080/stomp endpoint is protected by spring security
 - [x] Check cookie exist in http request header when doing websocket handshake
 - [x] Check Principal is available in controller layer
-- [ ] Check SecurityContextHolder is available
+- [x] Check SecurityContextHolder is available ❌
 - [ ] Check client automatically disconnected by spring security upon `/logout`?
 
 ## #1 WS endpoint protected by default ✅
@@ -167,8 +167,114 @@ public class ChatController {
 >
 > principal.name: cyper
 
-## #4 Check SecurityContextHolder is available ✅
+## #4 Check SecurityContextHolder is available ❌
 
 好家伙 `SecurityContextHolder.getContext().getAuthentication()` 返回null， 上面的代码抛出了NullPointerException。
 
 stackoverflow上有人碰到这个问题：[Spring boot websocket: how to get the current principal programmatically?](https://stackoverflow.com/q/62760602/2497876)
+
+思考一下可以推断原因:
+
+- SecurityContextHolder是在thread local中保存user info， 设置值 和 取值 应该处于同一个thread。
+- 在websocket handshake阶段，浏览器向server发送http请求，此时spring security拦截到request， 根据cookie恢复用户session，
+  然后在当前的Tomcat thread中设置了用户信息。
+- 接下来, upgrade，协议变更为websocket，请求交给了Jetty， 而jetty的thread不像tomcat(per request, per thread).
+
+解决办法:
+
+1. 不可以在websocket中使用SecurityContext
+2. 在ChannelInterceptor中使用StompHeaderAccessor.getUser()
+3. 在Controller中使用Principal或SimpMessageHeaderAccessor来get用户
+4. cookie based情况下， getUser()返回 `UsernamePasswordAuthenticationToken`
+
+看一下最重要的CONNECT和SEND阶段STOMP HEADER里都有啥。
+
+```java
+private class MyInboundChannelInterceptor implements ChannelInterceptor {
+    @Override
+    public Message<?> preSend(Message<?> message, MessageChannel channel) {
+        log.info("================= MyInboundChannelInterceptor =================");
+        log.info("thread.id: {}", Thread.currentThread().getId());
+        log.info("thread.name: {}", Thread.currentThread().getName());
+
+        final StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
+
+        log.info("accessor.user: {}", accessor.getUser());
+
+        if (StompCommand.CONNECT == accessor.getCommand()) {
+            log.info("=============== CONNECT =============");
+            MessageHeaders headers = message.getHeaders();
+            headers.forEach((h, index) -> {
+                log.info("{} -> {}", h, headers.get(h));
+            });
+        }
+
+        if (StompCommand.SEND == accessor.getCommand()) {
+            log.info("=============== SEND =============");
+            MessageHeaders headers = message.getHeaders();
+            headers.forEach((h, index) -> {
+                log.info("{} -> {}", h, headers.get(h));
+            });
+        }
+
+        return message;
+    }
+}
+```
+
+Inbound Channel(CONNECT)
+
+```logcatfilter
+[10-16 15:20:30 TRACE] [o.s.w.s.m.StompSubProtocolHandler   ] From client: CONNECT user=cyper session=4213c107-1cb0-4439-dab3-0f607b1386a7
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] ================= MyInboundChannelInterceptor =================
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] thread.id: 34
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] thread.name: http-nio-8080-exec-5
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] accessor.user: UsernamePasswordAuthenticationToken [Principal=org.springframework.security.core.userdetails.User [Username=cyper, Password=[PROTECTED], Enabled=true, AccountNonExpired=true, credentialsNonExpired=true, AccountNonLocked=true, Granted Authorities=[ROLE_admin]], Credentials=[PROTECTED], Authenticated=true, Details=WebAuthenticationDetails [RemoteIpAddress=0:0:0:0:0:0:0:1, SessionId=null], Granted Authorities=[ROLE_admin]]
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] =============== CONNECT =============
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] simpMessageType -> CONNECT
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] stompCommand -> CONNECT
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] nativeHeaders -> {login=[user], passcode=[PROTECTED], accept-version=[1.0,1.1,1.2], heart-beat=[4000,4000]}
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] simpSessionAttributes -> {}
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] simpHeartbeat -> [4000, 4000]
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] stompCredentials -> [PROTECTED]
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] simpUser -> UsernamePasswordAuthenticationToken [Principal=org.springframework.security.core.userdetails.User [Username=cyper, Password=[PROTECTED], Enabled=true, AccountNonExpired=true, credentialsNonExpired=true, AccountNonLocked=true, Granted Authorities=[ROLE_admin]], Credentials=[PROTECTED], Authenticated=true, Details=WebAuthenticationDetails [RemoteIpAddress=0:0:0:0:0:0:0:1, SessionId=null], Granted Authorities=[ROLE_admin]]
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] simpSessionId -> 4213c107-1cb0-4439-dab3-0f607b1386a7
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] ============== MyOutboundChannelInterceptor =============
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] thread.id: 51
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] thread.name: clientInboundChannel-2
+[10-16 15:20:30 INFO ] [demo.config.WebSocketConfig         ] message: GenericMessage [payload=byte[0], headers={simpMessageType=CONNECT_ACK, simpConnectMessage=GenericMessage [payload=byte[0], headers={simpMessageType=CONNECT, stompCommand=CONNECT, nativeHeaders={login=[user], passcode=[PROTECTED], accept-version=[1.0,1.1,1.2], heart-beat=[4000,4000]}, simpSessionAttributes={}, simpHeartbeat=[J@18254767, stompCredentials=[PROTECTED], simpUser=UsernamePasswordAuthenticationToken [Principal=org.springframework.security.core.userdetails.User [Username=cyper, Password=[PROTECTED], Enabled=true, AccountNonExpired=true, credentialsNonExpired=true, AccountNonLocked=true, Granted Authorities=[ROLE_admin]], Credentials=[PROTECTED], Authenticated=true, Details=WebAuthenticationDetails [RemoteIpAddress=0:0:0:0:0:0:0:1, SessionId=null], Granted Authorities=[ROLE_admin]], simpSessionId=4213c107-1cb0-4439-dab3-0f607b1386a7}], simpUser=UsernamePasswordAuthenticationToken [Principal=org.springframework.security.core.userdetails.User [Username=cyper, Password=[PROTECTED], Enabled=true, AccountNonExpired=true, credentialsNonExpired=true, AccountNonLocked=true, Granted Authorities=[ROLE_admin]], Credentials=[PROTECTED], Authenticated=true, Details=WebAuthenticationDetails [RemoteIpAddress=0:0:0:0:0:0:0:1, SessionId=null], Granted Authorities=[ROLE_admin]], simpSessionId=4213c107-1cb0-4439-dab3-0f607b1386a7}]
+[10-16 15:20:30 TRACE] [o.s.w.s.a.NativeWebSocketSession    ] Sending TextMessage payload=[CONNECTED
+```
+
+Inbound Channel(SEND)
+
+```logcatfilter
+[10-16 15:20:34 TRACE] [o.s.w.s.m.StompSubProtocolHandler   ] From client: SEND /app/class403 session=4213c107-1cb0-4439-dab3-0f607b1386a7
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] ================= MyInboundChannelInterceptor =================
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] thread.id: 35
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] thread.name: http-nio-8080-exec-6
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] accessor.user: UsernamePasswordAuthenticationToken [Principal=org.springframework.security.core.userdetails.User [Username=cyper, Password=[PROTECTED], Enabled=true, AccountNonExpired=true, credentialsNonExpired=true, AccountNonLocked=true, Granted Authorities=[ROLE_admin]], Credentials=[PROTECTED], Authenticated=true, Details=WebAuthenticationDetails [RemoteIpAddress=0:0:0:0:0:0:0:1, SessionId=null], Granted Authorities=[ROLE_admin]]
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] =============== SEND =============
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] simpMessageType -> MESSAGE
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] stompCommand -> SEND
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] nativeHeaders -> {destination=[/app/class403], content-length=[5]}
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] simpSessionAttributes -> {}
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] simpHeartbeat -> [0, 0]
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] simpUser -> UsernamePasswordAuthenticationToken [Principal=org.springframework.security.core.userdetails.User [Username=cyper, Password=[PROTECTED], Enabled=true, AccountNonExpired=true, credentialsNonExpired=true, AccountNonLocked=true, Granted Authorities=[ROLE_admin]], Credentials=[PROTECTED], Authenticated=true, Details=WebAuthenticationDetails [RemoteIpAddress=0:0:0:0:0:0:0:1, SessionId=null], Granted Authorities=[ROLE_admin]]
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] simpSessionId -> 4213c107-1cb0-4439-dab3-0f607b1386a7
+[10-16 15:20:34 INFO ] [demo.config.WebSocketConfig         ] simpDestination -> /app/class403
+```
+
+Controller(WebSocketAnnotationMethodMessageHandler)
+
+```logcatfilter
+[10-16 15:20:34 DEBUG] [o.s.w.s.m.WebSocketAnnotationMethodMessageHandler] Searching methods to handle SEND /app/class403 session=4213c107-1cb0-4439-dab3-0f607b1386a7, lookupDestination='/class403'
+[10-16 15:20:34 TRACE] [o.s.w.s.m.WebSocketAnnotationMethodMessageHandler] Found 1 handler methods: [{[MESSAGE],[/class403]}]
+[10-16 15:20:34 DEBUG] [o.s.w.s.m.WebSocketAnnotationMethodMessageHandler] Invoking ChatController#greetings[3 args]
+[10-16 15:20:34 INFO ] [demo.controller.ChatController      ] thread.id: 54
+[10-16 15:20:34 INFO ] [demo.controller.ChatController      ] thread.name: clientInboundChannel-4
+[10-16 15:20:34 INFO ] [demo.controller.ChatController      ] message: hello
+[10-16 15:20:34 INFO ] [demo.controller.ChatController      ] principal.name: cyper
+[10-16 15:20:34 INFO ] [demo.controller.ChatController      ] user: UsernamePasswordAuthenticationToken [Principal=org.springframework.security.core.userdetails.User [Username=cyper, Password=[PROTECTED], Enabled=true, AccountNonExpired=true, credentialsNonExpired=true, AccountNonLocked=true, Granted Authorities=[ROLE_admin]], Credentials=[PROTECTED], Authenticated=true, Details=WebAuthenticationDetails [RemoteIpAddress=0:0:0:0:0:0:0:1, SessionId=null], Granted Authorities=[ROLE_admin]]
+
+```
