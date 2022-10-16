@@ -15,6 +15,7 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 import javax.servlet.ServletException;
@@ -56,9 +57,14 @@ public class SecurityConfig {
         );
 
         http.formLogin(login -> login
+                .permitAll()
                 .successHandler(new MyAuthenticationSuccessHandler())
                 .failureHandler(new MyAuthenticationFailureHandler())
-                .permitAll());
+        );
+
+        http.logout(logout -> logout
+                .permitAll()
+                .logoutSuccessHandler(new MyLogoutSuccessHandler()));
 
         // by default uses a Bean by the name of corsConfigurationSource
         http.cors(withDefaults());
@@ -115,6 +121,16 @@ public class SecurityConfig {
             response.setStatus(HttpServletResponse.SC_OK);
             String message = NestedExceptionUtils.getMostSpecificCause(exception).getMessage();
             R r = new R("unauthorized", "MyAuthenticationFailureHandler: " + message);
+            response.getWriter().println(new ObjectMapper().writeValueAsString(r));
+        }
+    }
+
+    class MyLogoutSuccessHandler implements LogoutSuccessHandler {
+        @Override
+        public void onLogoutSuccess(HttpServletRequest request, HttpServletResponse response, Authentication authentication) throws IOException, ServletException {
+            response.setContentType("application/json;charset=UTF-8");
+            response.setStatus(HttpServletResponse.SC_OK);
+            R r = new R("success", "success");
             response.getWriter().println(new ObjectMapper().writeValueAsString(r));
         }
     }
