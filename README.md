@@ -88,7 +88,32 @@ spring security根据cookie中的JSESSIONID恢复http session， 并创建相应
 >
 >【o.s.w.s.s.s.DefaultHandshakeHandler】Upgrading to WebSocket, subProtocol=null, extensions=[]
 
-重要的源代码:
+重要的源代码 `org.springframework.web.socket.server.support.AbstractHandshakeHandler`
 ![](./doc/images/ws-handshake-src.png)
 
+这个类有一个重要的方法 `determineUser` - used to associate a user with the WebSocket session in the process of being
+established.
 
+subclass这个抽象类，重写determineUser方法， 为websocket session指定一个用户名，你甚至可以在这个方法中给匿名用户分配随机的名字，
+默认实现是 [request.getPrincipal()](https://stackoverflow.com/a/31270018/2497876)
+
+```java
+Principal user=determineUser(request,wsHandler,attributes);
+
+/**
+ * A method that can be used to associate a user with the WebSocket session
+ * in the process of being established. The default implementation calls
+ * {@link ServerHttpRequest#getPrincipal()}
+ * <p>Subclasses can provide custom logic for associating a user with a session,
+ * for example for assigning a name to anonymous users (i.e. not fully authenticated).
+ * @param request the handshake request
+ * @param wsHandler the WebSocket handler that will handle messages
+ * @param attributes handshake attributes to pass to the WebSocket session
+ * @return the user for the WebSocket session, or {@code null} if not available
+ */
+@Nullable
+protected Principal determineUser(
+        ServerHttpRequest request,WebSocketHandler wsHandler,Map<String, Object> attributes){
+        return request.getPrincipal();
+        }
+```

@@ -36,6 +36,10 @@ public class SecurityConfig {
                 User.withUsername("cyper")
                         .password("{noop}password")
                         .roles("admin")
+                        .build(),
+                User.withUsername("david")
+                        .password("{noop}password")
+                        .roles("user")
                         .build()
         );
     }
