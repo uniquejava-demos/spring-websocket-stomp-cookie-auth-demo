@@ -175,10 +175,12 @@ stackoverflow上有人碰到这个问题：[Spring boot websocket: how to get th
 
 思考一下可以推断原因:
 
-- SecurityContextHolder是在thread local中保存user info， 设置值 和 取值 应该处于同一个thread。
+- SecurityContextHolder是在thread local中保存user info， 设置值 和 取值 应该处于同一个thread(虽然你可以使用context
+  propagation)
 - 在websocket handshake阶段，浏览器向server发送http请求，此时spring security拦截到request， 根据cookie恢复用户session，
   然后在当前的Tomcat thread中设置了用户信息。
-- 接下来, upgrade，协议变更为websocket，请求交给了Jetty， 而jetty的thread不像tomcat(per request, per thread).
+- 接下来, upgrade，协议变更为websocket，请求交给了Jetty， 此时不再使用single thread来处理websocket， 比如channel是一个thread，
+  MessageHandler(Controller) 又是另外的thread, SecurityContextHolder不再适用。
 
 解决办法:
 
@@ -278,3 +280,57 @@ Controller(WebSocketAnnotationMethodMessageHandler)
 [10-16 15:20:34 INFO ] [demo.controller.ChatController      ] user: UsernamePasswordAuthenticationToken [Principal=org.springframework.security.core.userdetails.User [Username=cyper, Password=[PROTECTED], Enabled=true, AccountNonExpired=true, credentialsNonExpired=true, AccountNonLocked=true, Granted Authorities=[ROLE_admin]], Credentials=[PROTECTED], Authenticated=true, Details=WebAuthenticationDetails [RemoteIpAddress=0:0:0:0:0:0:0:1, SessionId=null], Granted Authorities=[ROLE_admin]]
 
 ```
+
+## SecurityContextHolder.getContext() is not applicable
+
+我在这个帖子里回复了我的看法: https://stackoverflow.com/a/54309308/2497876
+
+> Per my observation, unlike a normal http request - where everything handled within a thread, so you can use
+> SecurityContextHolder(basically some TheadLocal stuff). In websocket, the thread where you setAuthentication(typically
+> in ChannelInterceptor) and the place you getAuthentication(typically in service or controller layer) are totally in
+> different threads. So SecurityContextHolder is not applicable here, I think we can use Principal or
+> SimpMessageHeaderAccessor to get user and pass it to service layer, or setAuthentication in your controller and use it
+> in your service(since they reside in same thread)
+>
+
+![channel and controller are in different thread](./doc/images/channel-controller-different-thread.png)
+
+下面是我做的实验， 尝试set (thread name: http-nio-8080-exec-5)
+
+```java
+final StompHeaderAccessor accessor=MessageHeaderAccessor.getAccessor(message,StompHeaderAccessor.class);
+
+        if(StompCommand.SEND==accessor.getCommand()){
+        Authentication auth=SecurityContextHolder.getContext().getAuthentication();
+        if(auth==null){
+        log.info("setting auth ...");
+        SecurityContextHolder.getContext().setAuthentication((UsernamePasswordAuthenticationToken)accessor.getUser());
+        }
+        }
+```
+
+尝试get (thread name: inboundChannel-4)
+
+```java
+
+@MessageMapping("/class403")
+public String greetings(String message,Principal principal,SimpMessageHeaderAccessor headerAccessor){
+        // works
+        log.info("principal.name: {}",principal.getName());
+
+        // not work
+        Authentication auth=SecurityContextHolder.getContext().getAuthentication();
+        log.info("auth.name: {}",auth!=null?auth.getName():null);
+
+        // works
+        log.info("user: {}",headerAccessor.getUser());
+
+        return message;
+        }
+```
+
+https://stackoverflow.com/questions/54307574/spring-websockets-spring-security-authorization-not-working-inside-websockets
+
+https://howtodoinjava.com/spring-security/spring-security-context-propagation/
+
+## Checkpoint #4 /logout will trigger disconnect event?

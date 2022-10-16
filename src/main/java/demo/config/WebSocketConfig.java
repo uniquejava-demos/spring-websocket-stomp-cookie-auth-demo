@@ -12,6 +12,9 @@ import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
@@ -74,6 +77,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 headers.forEach((h, index) -> {
                     log.info("{} -> {}", h, headers.get(h));
                 });
+
+                Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+                if (auth == null) {
+                    log.info("setting auth ...");
+                    SecurityContextHolder.getContext().setAuthentication((UsernamePasswordAuthenticationToken) accessor.getUser());
+                }
             }
 
             return message;

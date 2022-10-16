@@ -28,8 +28,8 @@ public class ChatController {
         log.info("message: {}", message);
         log.info("principal.name: {}", principal.getName());
 
-        // Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        // log.info("auth.name: {}", auth != null ? auth.getName() : null);
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        log.info("auth.name: {}", auth != null ? auth.getName() : null);
         log.info("user: {}", headerAccessor.getUser());
 
         return message;
