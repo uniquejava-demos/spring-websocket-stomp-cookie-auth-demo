@@ -1,33 +1,66 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Client } from '@stomp/stompjs'
 import Login from './components/Login'
 
 function App() {
   const [connected, setConnected] = useState(false)
-  const [ws, setWs] = useState<null | WebSocket>(null)
+  const [client, setClient] = useState<null | Client>(null)
+  const [messageInput, setMessageInput] = useState<string>('')
 
-  function onConnect() {
-    const ws = new WebSocket('ws://localhost:8080/stomp')
+  useEffect(() => {
+    const client = new Client({
+      brokerURL: 'ws://localhost:8080/stomp',
+      connectHeaders: {
+        login: 'user',
+        passcode: 'password',
+      },
+      debug: function (str) {
+        console.log(str)
+      },
+      reconnectDelay: 5000,
+      heartbeatIncoming: 4000,
+      heartbeatOutgoing: 4000,
+    })
 
-    ws.onopen = (event) => {
-      console.log('on open ..')
-      ws.send('Hello Server!')
+    client.onConnect = function (frame) {
+      // Do something, all subscribes must be done is this callback
+      // This is needed because this will be executed after a (re)connect
       setConnected(true)
     }
 
-    ws.onmessage = (event) => {
-      console.log('on message: ', event.data)
-    }
-
-    ws.onerror = (event) => {
-      console.log('onerror: ', event)
-    }
-
-    ws.onclose = (event) => {
-      console.log('onclose: ', event.code, event.reason)
+    client.onDisconnect = function () {
+      console.log('Client disconnected.')
       setConnected(false)
     }
 
-    setWs(ws)
+    client.onStompError = function (frame) {
+      // Will be invoked in case of error encountered at Broker
+      // Bad login/passcode typically will cause an error
+      // Complaint brokers will set `message` header with a brief message. Body may contain details.
+      // Compliant brokers will terminate the connection after any error
+      console.log('Broker reported error: ' + frame.headers['message'])
+      console.log('Additional details: ' + frame.body)
+    }
+
+    setClient(client)
+  }, [])
+
+  function onConnect() {
+    client?.activate()
+  }
+
+  function onDisconnect() {
+    client?.deactivate()
+  }
+
+  function onSend() {
+    if (messageInput) {
+      client?.publish({
+        destination: '/app/class403',
+        body: messageInput,
+      })
+      setMessageInput('')
+    }
   }
 
   return (
@@ -38,7 +71,21 @@ function App() {
       <hr />
 
       <div>
-        {connected ? null : <button onClick={() => onConnect()}>Connect to Chat server</button>}
+        {connected ? (
+          <div>
+            <input
+              onChange={(event) => {
+                setMessageInput(event.target.value)
+              }}
+              value={messageInput}
+            />
+            <button onClick={onSend} disabled={!messageInput}>
+              send
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => onConnect()}>Connect to Chat server</button>
+        )}
       </div>
     </>
   )

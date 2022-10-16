@@ -33,8 +33,7 @@ function Login() {
 
   async function onLogout() {
     await http.post('/logout')
-    document.cookie = 'JSESSIONID=; expires=Thu, 01 Jan 1970 00:00:01 GMT;'
-    document.cookie = 'XSRF-TOKEN=; expires=Thu, 01 Jan 1970 00:00:01 GMT;'
+    setAuthenticated(false)
   }
 
   return (

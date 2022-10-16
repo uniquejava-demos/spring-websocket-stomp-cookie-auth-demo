@@ -8,7 +8,7 @@
 
 - [x] Check ws://localhost:8080/stomp endpoint is protected by spring security
 - [x] Check cookie exist in http request header when doing websocket handshake
-- [ ] Check Principal is available in controller layer
+- [x] Check Principal is available in controller layer
 - [ ] Check SecurityContextHolder is available
 - [ ] Check client automatically disconnected by spring security upon `/logout`?
 
@@ -28,11 +28,10 @@
 ```tsx
 function App() {
     const [connected, setConnected] = useState(false)
-
-    let ws: WebSocket
+    const [ws, setWs] = useState<null | WebSocket>(null)
 
     function onConnect() {
-        ws = new WebSocket('ws://localhost:8080/stomp')
+        const ws = new WebSocket('ws://localhost:8080/stomp')
 
         ws.onopen = (event) => {
             console.log('on open ..')
@@ -52,6 +51,8 @@ function App() {
             console.log('onclose: ', event.code, event.reason)
             setConnected(false)
         }
+
+        setWs(ws)
     }
 
     return <></>
@@ -117,3 +118,57 @@ protected Principal determineUser(
         return request.getPrincipal();
         }
 ```
+
+## #3 Check Principal is available in controller layer ✅
+
+This one is easy!
+
+client端代码(为了发STOMP消息， 我使用了 [stompjs](https://github.com/stomp-js/stompjs) 这个库 )
+
+```js
+  function onSend() {
+    if (messageInput) {
+        client?.publish({
+            destination: '/app/class403',
+            body: messageInput,
+        })
+        setMessageInput('')
+    }
+}
+```
+
+server端代码：
+
+```java
+
+@RestController
+public class ChatController {
+
+    @MessageMapping("/class403")
+    public String greetings(String message, Principal principal) {
+        System.out.println("message: " + message);
+
+        System.out.println("principal.name: " + principal.getName());
+
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        System.out.println("auth.name: " + auth.getName());
+
+        return message;
+    }
+}
+```
+
+控制台：
+> [o.s.w.s.m.StompSubProtocolHandler   ] From client: CONNECT user=cyper session=0c025ad4-601d-6e42-1ca5-f9ff47391577
+>
+> [o.s.w.s.m.StompSubProtocolHandler   ] From client: SEND /app/class403 session=0c025ad4-601d-6e42-1ca5-f9ff47391577
+>
+> message: hello
+>
+> principal.name: cyper
+
+## #4 Check SecurityContextHolder is available ✅
+
+好家伙 `SecurityContextHolder.getContext().getAuthentication()` 返回null， 上面的代码抛出了NullPointerException。
+
+stackoverflow上有人碰到这个问题：[Spring boot websocket: how to get the current principal programmatically?](https://stackoverflow.com/q/62760602/2497876)

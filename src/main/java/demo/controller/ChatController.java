@@ -12,6 +12,8 @@ public class ChatController {
 
     @MessageMapping("/class403")
     public String greetings(String message, Principal principal) {
+        System.out.println("message: " + message);
+
         System.out.println("principal.name: " + principal.getName());
 
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
