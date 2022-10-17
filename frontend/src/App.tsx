@@ -10,6 +10,10 @@ function App() {
   useEffect(() => {
     const client = new Client({
       brokerURL: 'ws://localhost:8080/stomp',
+
+      // https://docs.spring.io/spring-framework/docs/4.3.x/spring-framework-reference/html/websocket.html#websocket-stomp-handle-broker-relay-configure
+      // The STOMP broker relay always sets the login and passcode headers on every CONNECT frame that it forwards to the broker on behalf of clients.
+      // Therefore WebSocket clients need not set those headers; they will be ignored.
       connectHeaders: {
         login: 'user',
         passcode: 'password',
